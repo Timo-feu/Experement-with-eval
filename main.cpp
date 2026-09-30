@@ -7,6 +7,7 @@
 #include <functional>
 #include <cctype>
 
+
 namespace SoulEngine {
     using TypeID = const void*;
 
