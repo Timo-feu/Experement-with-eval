@@ -1,0 +1,30 @@
+# Специфичные папки сборки CMake и w64devkit
+build/
+.cmake/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+
+# Скомпилированные исполняемые файлы, статические и динамические библиотеки
+*.exe
+*.out
+*.app
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Локальные конфиги текстовых редакторов и сред разработки (VS Code / CLion)
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Временные папки и кэш компиляции
+temp/
+cache/
+*.log
+*.tmp

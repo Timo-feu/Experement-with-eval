@@ -5,10 +5,17 @@
 #include <memory>
 #include <typeindex>
 #include <functional>
-#include <stdexcept>
 #include <cctype>
 
 namespace SoulEngine {
+    using TypeID = const void*;
+
+    template <typename T>
+    inline TypeID get_type_id() {
+        static const char id_marker = 0;
+        return &id_marker;
+    }
+
 
     #define VAR(engine, type, name, val) \
         type name = val;                 \
@@ -32,27 +39,44 @@ namespace SoulEngine {
         T(double num) : kind(Kind::Number), number(num) {}
         T(BaseAny* obj) : kind(Kind::Object), obj_ptr(obj) {}
 
+        // Перегрузка оператора присваивания для чисел
+        T& operator=(double val) {
+            kind = Kind::Number;
+            number = val;
+            return *this;
+        }
+
+        // Перегрузка оператора присваивания для объектов
+        T& operator=(BaseAny* obj) {
+            kind = Kind::Object;
+            obj_ptr = obj;
+            return *this;
+        }
+
+        // Перегрузка оператора [] для быстрого доступа к арифметике (если нужно)
+        // Либо для динамического связывания.
+        
         T operator+(const T& o) const { 
             if(kind == Kind::Number && o.kind == Kind::Number) return number + o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '+' operation"); 
+            return 0.0;
         }
         T operator-(const T& o) const { 
             if(kind == Kind::Number && o.kind == Kind::Number) return number - o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '-' operation"); 
+            return 0.0;
         }
-        T operator*(const T& o) const { 
+        T operator*const T& o) const { 
             if(kind == Kind::Number && o.kind == Kind::Number) return number * o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '*' operation"); 
+            return 0.0;
         }
         T operator/(const T& o) const { 
             if(kind == Kind::Number && o.kind == Kind::Number) { 
-                if(o.number == 0.0) throw std::runtime_error("SoulEngine Error: Division by zero"); 
                 return number / o.number; 
             } 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '/' operation"); 
+            return 0.0;
         }
         bool operator==(double val) const { return kind == Kind::Number && number == val; }
     };
+
 
     template <typename ClassType>
     class AnyType : public BaseAny {
@@ -139,13 +163,11 @@ namespace SoulEngine {
 
         T invoke(BaseAny* obj) override {
             if (obj->getType() != std::type_index(typeid(ClassType))) {
-                throw std::runtime_error("SoulEngine Registry Error: Type mismatch during field invocation!");
             }
             ClassType* native = static_cast<AnyType<ClassType>*>(obj)->get();
             if constexpr (std::is_arithmetic_v<MemberType>) { 
                 return T(static_cast<double>(native->*field_ptr)); 
             }
-            throw std::runtime_error("SoulEngine Error: Unsupported field type in math engine");
         }
     };
 
@@ -157,13 +179,11 @@ namespace SoulEngine {
 
         T invoke(BaseAny* obj) override {
             if (obj->getType() != std::type_index(typeid(ClassType))) {
-                throw std::runtime_error("SoulEngine Registry Error: Type mismatch during method invocation!");
             }
             ClassType* native = static_cast<AnyType<ClassType>*>(obj)->get();
             if constexpr (std::is_arithmetic_v<ReturnType>) { 
                 return T(static_cast<double>((native->*method_ptr)())); 
             }
-            throw std::runtime_error("SoulEngine Error: Unsupported method return type");
         }
     };
 
@@ -246,16 +266,7 @@ namespace SoulEngine {
 
         T evaluator(Context& ctx) const override {
             T obj_res = target->evaluator(ctx);
-            if (obj_res.kind != T::Kind::Object) {
-                throw std::runtime_error("SoulEngine Runtime Error: Dot operator applied to non-object expression!");
-            }
-            if (!obj_res.obj_ptr) {
-                throw std::runtime_error("SoulEngine Runtime Error: Attempted access on nullptr object!");
-            }
             BaseInvoker* invoker = reg.getInvoker(obj_res.obj_ptr->getType(), member_name);
-            if (!invoker) {
-                throw std::runtime_error("SoulEngine Reflection Error: Member '" + member_name + "' not found in registry!");
-            }
             return invoker->invoke(obj_res.obj_ptr);
         }
     };
@@ -367,9 +378,6 @@ namespace SoulEngine {
                     std::unique_ptr<Node> current_node = std::make_unique<VarNode>(token.value);
                     
                     while (i + 1 < tokens.size() && tokens[i + 1].type == TokenType::Dot) {
-                        if (i + 2 >= tokens.size() || tokens[i + 2].type != TokenType::Variable) {
-                            throw std::runtime_error("SoulEngine Parser Error: Expected member name after dot operator!");
-                        }
                         std::string member = tokens[i + 2].value;
                         i += 2; 
                         current_node = std::make_unique<MemberAccessNode>(std::move(current_node), member, reg);
@@ -400,9 +408,6 @@ namespace SoulEngine {
         double eval(std::string expr) {
             pars(expr); 
             T res = root->evaluator(mem);
-            if (res.kind != T::Kind::Number) {
-                throw std::runtime_error("SoulEngine Error: Expression evaluated to an object container, expected number!");
-            }
             return res.number;
         }
 
@@ -429,6 +434,7 @@ public:
     }
 };
 
+
 int main() {
     SoulEngine::ClassRegistry registry;
     registry.registerMethod("getHp", &Player::getHp);
@@ -442,20 +448,16 @@ int main() {
     Player player(100.0);
     engine.bindObject("player", &player);
 
-    try {
-        double res_init = engine.eval("player.getHp * 2 + modifier");
-        std::cout << "res1:" << res_init << std::endl;
+    double res_init = engine.eval("player.getHp * 2 + modifier");
+    std::cout << "res1:" << res_init << std::endl;
 
-        double res_damaged = engine.eval("player.takeDamage + modifier");
-        std::cout << "res2:" << res_damaged << std::endl;
+    double res_damaged = engine.eval("player.takeDamage + modifier");
+    std::cout << "res2:" << res_damaged << std::endl;
 
-        double res_heeled = engine.eval("player.heel");
-        std::cout << "res3:" << res_heeled << std::endl;
+    double res_heeled = engine.eval("player.heel");
+    std::cout << "res3:" << res_heeled << std::endl;
 
 
-    } catch (const std::exception& e) {
-        std::cerr << "Пизда, не сработало " << e.what() << std::endl;
-    }
 
     return 0;
 }
