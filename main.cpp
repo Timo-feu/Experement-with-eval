@@ -7,7 +7,6 @@
 #include <functional>
 #include <cctype>
 
-
 namespace SoulEngine {
     using TypeID = const void*;
 
@@ -40,7 +39,6 @@ namespace SoulEngine {
         T(double num) : kind(Kind::Number), number(num) {}
         T(BaseAny* obj) : kind(Kind::Object), obj_ptr(obj) {}
 
-        // Перегрузка оператора присваивания для чисел
         T& operator=(double val) {
             kind = Kind::Number;
             number = val;
@@ -54,9 +52,6 @@ namespace SoulEngine {
             return *this;
         }
 
-        // Перегрузка оператора [] для быстрого доступа к арифметике (если нужно)
-        // Либо для динамического связывания.
-        
         T operator+(const T& o) const { 
             if(kind == Kind::Number && o.kind == Kind::Number) return number + o.number; 
             return 0.0;
