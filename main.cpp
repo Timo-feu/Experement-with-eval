@@ -3,9 +3,6 @@
 #include <map>
 #include <vector>
 #include <memory>
-#include <typeindex>
-#include <functional>
-#include <stdexcept>
 #include <cctype>
 
 namespace SoulEngine {
