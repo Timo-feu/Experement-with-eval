@@ -38,7 +38,7 @@ namespace SoulEngine {
 
         T& operator[](const char* key) {
             for (int i = 0; i < vars.size(); i++) {
-                if (strcmp(vars[i].name, key) == 0) {
+                if (std::strcmp(vars[i].name, key) == 0) {
                     return vars[i].value;
                 }
             };
@@ -50,7 +50,7 @@ namespace SoulEngine {
     struct Variables {
         const char* name;
         T value;
-    }
+    };
 }
 
 
