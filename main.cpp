@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 
-
 namespace SoulEngine {
     struct T{
         enum class Forms{Number, Object};
