@@ -104,7 +104,6 @@ namespace SoulEngine {
     }
 }
 
-
 int main() {
     return 0;
 }
