@@ -102,8 +102,12 @@ namespace SoulEngine {
         }       
         return T(0.0);
     }
+    T Lexer(string str, Context& ctx) {
+        
+    };
 }
 
 int main() {
+    
     return 0;
 }
