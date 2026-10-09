@@ -43,7 +43,7 @@ namespace SoulEngine {
         T value;
     };
 
-    enum class NodeType {Number, Variable, Add, Sub, Mul, Div};
+    enum NodeType {NodNumber, NodVariable, NodAdd, NodSub, NodMul, NodDiv};
 
     struct Node {
         NodeType type;
@@ -82,32 +82,68 @@ namespace SoulEngine {
 
         switch (cur_node.type)
         {
-            case NodeType::Number:      return T(cur_node.value);
+            case NodNumber:      return T(cur_node.value);
             
-            case NodeType::Variable:    return ctx[cur_node.var_name];
+            case NodVariable:    return ctx[cur_node.var_name];
 
-            case NodeType::Add:
+            case NodAdd:
                 return evaluator(cur_node.left, pool, ctx) + evaluator(cur_node.right, pool, ctx);
             
 
-            case NodeType::Sub:
+            case NodSub:
                 return evaluator(cur_node.left, pool, ctx) - evaluator(cur_node.right, pool, ctx);
             
             
-            case NodeType::Mul:
+            case NodMul:
                 return evaluator(cur_node.left, pool, ctx) * evaluator(cur_node.right, pool, ctx);
             
-            case NodeType::Div:
+            case NodDiv:
                 return evaluator(cur_node.left, pool, ctx) / evaluator(cur_node.right, pool, ctx);
         }       
         return T(0.0);
     }
-    T Lexer(string str, Context& ctx) {
-        
+    
+    enum TokenType {TokType, TokVariable, TokOperator, TokLeftParent, TokRightParen, TokDot};
+
+    struct Token
+    {
+        TokenType type;
+        double number_value;
+        const char* start_ptr;
+        size_t lenght;
+        char op_char;
     };
+    
+    static std::vector<Token> Lexer(string* src) {
+        std::vector<Token> tokens;
+        size_t i = 0;
+
+        while (src[i] != '\0') {
+            char c = src[i];
+
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                i++;
+                continue;
+            }
+            
+            switch (c)
+            {
+            case '+':
+                Token curNode;
+                curNode.type = TokOperator;
+                curNode.start_ptr = c;
+                curNode.op_char = '+';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            
+            default:
+                break;
+            }
+        }
+    }
 }
 
 int main() {
-    
     return 0;
 }
