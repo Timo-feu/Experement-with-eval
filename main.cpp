@@ -114,9 +114,10 @@ namespace SoulEngine {
         char op_char;
     };
     
-    static std::vector<Token> Lexer(string* src) {
+    static std::vector<Token> Lexer(const char* src) { 
         std::vector<Token> tokens;
         size_t i = 0;
+        Token curNode;
 
         while (src[i] != '\0') {
             char c = src[i];
@@ -125,22 +126,73 @@ namespace SoulEngine {
                 i++;
                 continue;
             }
+
+            if (std::isdigit(c)) {
+                curNode.type = TokNumber;
+                curNode.start_ptr = &src[i];
+
+                char* endPtr;
+                curNode.number_value = std::strtod(&src[i], &endPtr);
+                i += (endPtr - &src[i]); 
+
+                tokens.push_back(curNode);
+                continue;
+            }
+
+            if (std::isalpha(c) || c == '_') {
+                curNode.type = TokVariable;
+                curNode.start_ptr = &src[i];
+
+                size_t start_index = i;
+                while (src[i] != '\0' && (std::isalnum(src[i]) || src[i] == '_')) {
+                    i++;
+                }
+                curNode.lenght = i - start_index; 
+
+                tokens.push_back(curNode);
+                continue;
+            }
             
             switch (c)
             {
-            case '+':
-                Token curNode;
-                curNode.type = TokOperator;
-                curNode.start_ptr = c;
-                curNode.op_char = '+';
-                tokens.push_back(curNode);
-                i++;
-                break;
-            
-            default:
-                break;
+                case '+':
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '+';
+                    tokens.push_back(curNode);
+                    i++;
+                    break;
+                
+                case '-': 
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '-';
+                    tokens.push_back(curNode);
+                    i++;
+                    break;
+        
+                case '*': 
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '*';
+                    tokens.push_back(curNode);
+                    i++;
+                    break;
+                
+                case '/': 
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '/';
+                    tokens.push_back(curNode);
+                    i++;
+                    break;
+
+                default:
+                    i++;
+                    break;
             }
         }
+        return tokens;
     }
 }
 
