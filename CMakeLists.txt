@@ -34,8 +34,8 @@ endif()
 # 3. СБОРКА ЯДРА SOULENGINE (Пути изменены под твою структуру)
 # ==============================================================================
 file(GLOB_RECURSE CORE_SOURCES 
-    "main/*.cpp"
-    "main/*.c"
+    "*.cpp"
+    "*.c"
 )
 
 add_library(soul_core STATIC ${CORE_SOURCES})
@@ -48,8 +48,8 @@ target_include_directories(soul_core PUBLIC include)
 # ==============================================================================
 if(NOT ARDUINO AND NOT EMBEDDED)
     # Сборка песочницы для ПК
-    add_executable(soul_sandbox main/main.cpp)
-    target_link_libraries(soul_sandbox PRIVATE soul_core)
+    add_executable(soul_eval_test main.cpp)
+    target_link_libraries(soul_eval_test PRIVATE soul_core)
     
     message(STATUS "[SoulEngine] Конфигурация для ПК (Sandbox) успешно создана")
 else()
