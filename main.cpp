@@ -1,458 +1,433 @@
-#include <iostream>
-#include <string>
-#include <map>
 #include <vector>
-#include <memory>
+#include <cstring>
 #include <cctype>
+#include <cstdlib>
+#include <cstdio>
 
-namespace SoulEngine {
-
-    #define VAR(engine, type, name, val) \
-        type name = val;                 \
-        (engine).bind(#name, &name)
-
-    class BaseAny {
-    public:
-        virtual ~BaseAny() = default;
-        virtual std::type_index getType() const = 0;
-    };
-
-    struct T {
-        enum class Kind { Number, Object };
-        Kind kind;
-        union {
+namespace SoulEngine
+{
+    struct T
+    {
+        enum class Forms
+        {
+            Number,
+            Object
+        };
+        Forms form;
+        union
+        {
             double number;
-            BaseAny* obj_ptr;
+            void *obj_ptr;
         };
+        const char *class_type = nullptr;
 
-        T() : kind(Kind::Number), number(0.0) {}
-        T(double num) : kind(Kind::Number), number(num) {}
-        T(BaseAny* obj) : kind(Kind::Object), obj_ptr(obj) {}
+        T() : form(Forms::Number), number(0.0) {};
+        T(double num) : form(Forms::Number), number(num) {};
+        T(void *obj) : form(Forms::Object), obj_ptr(obj) {};
+        T(void *obj, const char *type) : form(Forms::Object), obj_ptr(obj), class_type(type) {}
 
-        T operator+(const T& o) const { 
-            if(kind == Kind::Number && o.kind == Kind::Number) return number + o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '+' operation"); 
+        T &operator=(double num)
+        {
+            form = Forms::Number;
+            number = num;
+            return *this;
         }
-        T operator-(const T& o) const { 
-            if(kind == Kind::Number && o.kind == Kind::Number) return number - o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '-' operation"); 
-        }
-        T operator*(const T& o) const { 
-            if(kind == Kind::Number && o.kind == Kind::Number) return number * o.number; 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '*' operation"); 
-        }
-        T operator/(const T& o) const { 
-            if(kind == Kind::Number && o.kind == Kind::Number) { 
-                if(o.number == 0.0) throw std::runtime_error("SoulEngine Error: Division by zero"); 
-                return number / o.number; 
-            } 
-            throw std::runtime_error("SoulEngine Math Error: Invalid '/' operation"); 
-        }
-        bool operator==(double val) const { return kind == Kind::Number && number == val; }
-    };
-
-    template <typename ClassType>
-    class AnyType : public BaseAny {
-        union {
-            ClassType* ptr;       
-            uintptr_t raw_bits;   
-        };
-        bool is_owned;            
-    public:
-        AnyType(ClassType* obj, bool owned = false) : is_owned(owned) {
-            if constexpr (std::is_arithmetic_v<ClassType>) {
-                uintptr_t addr = reinterpret_cast<uintptr_t>(obj);
-                raw_bits = addr | (owned ? 1 : 0);
-            } else { 
-                ptr = obj; 
-            }
+        T &operator=(void *obj)
+        {
+            form = Forms::Object;
+            obj_ptr = obj;
+            return *this;
         }
 
-        ~AnyType() override {
-            if constexpr (std::is_arithmetic_v<ClassType>) {
-                if ((raw_bits & 1) == 1) { 
-                    delete reinterpret_cast<ClassType*>(raw_bits & ~static_cast<uintptr_t>(1)); 
-                }
-            } else { 
-                if (is_owned) delete ptr; 
-            }
+        T operator+(const T &t) const
+        {
+            if ((t.form == Forms::Number) && (form == Forms::Number))
+                return T(number + t.number);
+            return T(0.0);
         }
-
-        ClassType* get() const {
-            if constexpr (std::is_arithmetic_v<ClassType>) { 
-                return reinterpret_cast<ClassType*>(raw_bits & ~static_cast<uintptr_t>(1)); 
-            } else { 
-                return ptr; 
-            }
+        T operator-(const T &t) const
+        {
+            if (form == Forms::Number && t.form == Forms::Number)
+                return T(number - t.number);
+            return T(0.0);
         }
-
-        std::type_index getType() const override { 
-            return std::type_index(typeid(ClassType)); 
+        T operator*(const T &t) const
+        {
+            if (form == Forms::Number && t.form == Forms::Number)
+                return T(number * t.number);
+            return T(0.0);
+        }
+        T operator/(const T &t) const
+        {
+            if (form == Forms::Number && t.form == Forms::Number)
+                return T(number / t.number);
+            return T(0.0);
         }
     };
 
-    class Context {
-        std::map<std::string, std::unique_ptr<BaseAny>> vars;
+    struct Variable
+    {
+        const char *name;
+        T value;
+    };
+
+    enum NodeType
+    {
+        NodeNumber,
+        NodeVariable,
+        NodeAdd,
+        NodeSub,
+        NodeMul,
+        NodeDiv,
+        NodeMemberAccess
+    };
+    enum TokenType
+    {
+        TokNumber,
+        TokVariable,
+        TokOperator,
+        TokLeftParent,
+        TokRightParen,
+        TokDot
+    };
+
+    struct Node
+    {
+        NodeType type;
+        double value = 0.0;
+        const char *var_name = nullptr;
+        size_t lenght = 0;
+        int left = -1;
+        int right = -1;
+    };
+
+    struct Token
+    {
+        TokenType type;
+        double number_value;
+        const char *start_ptr;
+        size_t lenght;
+        char op_char;
+    };
+
+    class Context
+    {
+    private:
+        std::vector<Variable> vars;
 
     public:
+        std::vector<Token> token_buffer;
+        std::vector<Node> pool_buffer;
+        std::vector<int> node_stack_buffer;
+        std::vector<char> op_stack_buffer;
+
         Context() = default;
         ~Context() = default;
 
-        template <typename ClassType>
-        void addReference(std::string name, ClassType* ptr) { 
-            vars[name] = std::make_unique<AnyType<ClassType>>(ptr, false); 
-        }
+        T &operator[](const char *key)
+        {
+            for (size_t i = 0; i < vars.size(); i++)
+            {
+                size_t j = 0;
+                while (vars[i].name[j] != '\0' && key[j] != '\0' && vars[i].name[j] == key[j])
+                {
+                    j++;
+                }
 
-        BaseAny* getRaw(std::string name) { 
-            auto it = vars.find(name);
-            return (it != vars.end()) ? it->second.get() : nullptr; 
-        }
-
-        bool find(std::string name) const { 
-            return vars.find(name) != vars.end(); 
-        }
-        
-        double& get(std::string name) {
-            if (find(name)) { 
-                return *(static_cast<AnyType<double>*>(vars[name].get())->get()); 
-            }
-            double* new_ptr = new double(0.0);
-            vars[name] = std::make_unique<AnyType<double>>(new_ptr, true);
-            return *new_ptr;
-        }
-    };
-
-    class BaseInvoker {
-    public:
-        virtual ~BaseInvoker() = default;
-        virtual T invoke(BaseAny* obj) = 0;
-    };
-
-    template <typename ClassType, typename MemberType>
-    class FieldInvoker : public BaseInvoker {
-        MemberType ClassType::*field_ptr;
-    public:
-        FieldInvoker(MemberType ClassType::*field) : field_ptr(field) {}
-
-        T invoke(BaseAny* obj) override {
-            if (obj->getType() != std::type_index(typeid(ClassType))) {
-                throw std::runtime_error("SoulEngine Registry Error: Type mismatch during field invocation!");
-            }
-            ClassType* native = static_cast<AnyType<ClassType>*>(obj)->get();
-            if constexpr (std::is_arithmetic_v<MemberType>) { 
-                return T(static_cast<double>(native->*field_ptr)); 
-            }
-            throw std::runtime_error("SoulEngine Error: Unsupported field type in math engine");
-        }
-    };
-
-    template <typename ClassType, typename ReturnType>
-    class MethodInvoker : public BaseInvoker {
-        ReturnType (ClassType::*method_ptr)();
-    public:
-        MethodInvoker(ReturnType (ClassType::*method)()) : method_ptr(method) {}
-
-        T invoke(BaseAny* obj) override {
-            if (obj->getType() != std::type_index(typeid(ClassType))) {
-                throw std::runtime_error("SoulEngine Registry Error: Type mismatch during method invocation!");
-            }
-            ClassType* native = static_cast<AnyType<ClassType>*>(obj)->get();
-            if constexpr (std::is_arithmetic_v<ReturnType>) { 
-                return T(static_cast<double>((native->*method_ptr)())); 
-            }
-            throw std::runtime_error("SoulEngine Error: Unsupported method return type");
-        }
-    };
-
-    class ClassRegistry {
-        std::map<std::type_index, std::map<std::string, std::unique_ptr<BaseInvoker>>> registry;
-    public:
-        ClassRegistry() = default;
-
-        template <typename ClassType, typename MemberType>
-        void registerField(std::string name, MemberType ClassType::*field) {
-            registry[std::type_index(typeid(ClassType))][name] = std::make_unique<FieldInvoker<ClassType, MemberType>>(field);
-        }
-
-        template <typename ClassType, typename ReturnType>
-        void registerMethod(std::string name, ReturnType (ClassType::*method)()) {
-            registry[std::type_index(typeid(ClassType))][name] = std::make_unique<MethodInvoker<ClassType, ReturnType>>(method);
-        }
-
-        BaseInvoker* getInvoker(std::type_index type, std::string name) {
-            auto t_it = registry.find(type);
-            if (t_it != registry.end()) {
-                auto m_it = t_it->second.find(name);
-                if (m_it != t_it->second.end()) {
-                    return m_it->second.get();
+                if (vars[i].name[j] == '\0')
+                {
+                    char k = key[j];
+                    if (k == '\0' || k == ' ' || k == '.' || k == '\t' || k == '+' || k == '*' || k == '-' || k == '/')
+                    {
+                        return vars[i].value;
+                    }
                 }
             }
-            return nullptr;
+            vars.push_back(Variable{key, T()});
+            return vars.back().value;
         }
     };
 
-    class Node {
-    public: 
-        virtual ~Node() = default;
-        virtual T evaluator(Context& ctx) const = 0; 
+    typedef double (*MethodWrapper)(void *);
+    struct RegisteredMethod
+    {
+        const char *class_type;
+        const char *method_name;
+        MethodWrapper func_ptr;
     };
+    inline std::vector<RegisteredMethod> method_registry;
 
-    class ValNode : public Node {
-        double value; 
-    public: 
-        ValNode(double val) : value(val) {}    
-        T evaluator(Context&) const override { return T(value); } 
-    };
+    template <typename ClassType, double (ClassType::*Method)()>
+    double invokeWrapper(void *obj_ptr) { return (static_cast<ClassType *>(obj_ptr)->*Method)(); }
+    T evaluator(const int nod_indx, const std::vector<Node> &pool, Context &ctx)
+    {
+        if (nod_indx == -1)
+            return T(0.0);
+        const Node &cur_node = pool[nod_indx];
 
-    class VarNode : public Node {
-        std::string name;
-    public:
-        VarNode(std::string n) : name(n) {}
-        T evaluator(Context& ctx) const override {
-            if (ctx.find(name)) {
-                BaseAny* raw = ctx.getRaw(name);
-                if (raw && raw->getType() == std::type_index(typeid(double))) {
-                    return T(ctx.get(name));
-                }
-                return T(raw);
-            }
-            return T(ctx.get(name));
-        } 
-    };
+        switch (cur_node.type)
+        {
+        case NodeNumber:
+            return T(cur_node.value);
+        case NodeVariable:
+            return ctx[cur_node.var_name];
+        case NodeAdd:
+            return evaluator(cur_node.left, pool, ctx) + evaluator(cur_node.right, pool, ctx);
+        case NodeSub:
+            return evaluator(cur_node.left, pool, ctx) - evaluator(cur_node.right, pool, ctx);
+        case NodeMul:
+            return evaluator(cur_node.left, pool, ctx) * evaluator(cur_node.right, pool, ctx);
+        case NodeDiv:
+            return evaluator(cur_node.left, pool, ctx) / evaluator(cur_node.right, pool, ctx);
 
-    class BinaryNode : public Node {
-    protected:
-        std::unique_ptr<Node> left;
-        std::unique_ptr<Node> right;
-    public:
-        BinaryNode(std::unique_ptr<Node> l, std::unique_ptr<Node> r) : left(std::move(l)), right(std::move(r)) {}
-    };
+        case NodeMemberAccess:
+        {
+            T obj = evaluator(cur_node.left, pool, ctx);
+            if (obj.form != T::Forms::Object)
+                return T(0.0);
 
-    class AddNode : public BinaryNode { public: using BinaryNode::BinaryNode; T evaluator(Context& ctx) const override { return left->evaluator(ctx) + right->evaluator(ctx); } };
-    class SubNode : public BinaryNode { public: using BinaryNode::BinaryNode; T evaluator(Context& ctx) const override { return left->evaluator(ctx) - right->evaluator(ctx); } };
-    class MulNode : public BinaryNode { public: using BinaryNode::BinaryNode; T evaluator(Context& ctx) const override { return left->evaluator(ctx) * right->evaluator(ctx); } };
-    class DivNode : public BinaryNode { public: using BinaryNode::BinaryNode; T evaluator(Context& ctx) const override { return left->evaluator(ctx) / right->evaluator(ctx); } };
+            const Node &method_node = pool[cur_node.right];
+            const char *target_method = method_node.var_name;
+            size_t method_len = method_node.lenght;
 
-    class MemberAccessNode : public Node {
-        std::unique_ptr<Node> target;
-        std::string member_name;
-        ClassRegistry& reg;
-    public:
-        MemberAccessNode(std::unique_ptr<Node> t, std::string m, ClassRegistry& r) 
-            : target(std::move(t)), member_name(m), reg(r) {}
-
-        T evaluator(Context& ctx) const override {
-            T obj_res = target->evaluator(ctx);
-            if (obj_res.kind != T::Kind::Object) {
-                throw std::runtime_error("SoulEngine Runtime Error: Dot operator applied to non-object expression!");
-            }
-            if (!obj_res.obj_ptr) {
-                throw std::runtime_error("SoulEngine Runtime Error: Attempted access on nullptr object!");
-            }
-            BaseInvoker* invoker = reg.getInvoker(obj_res.obj_ptr->getType(), member_name);
-            if (!invoker) {
-                throw std::runtime_error("SoulEngine Reflection Error: Member '" + member_name + "' not found in registry!");
-            }
-            return invoker->invoke(obj_res.obj_ptr);
-        }
-    };
-    enum class TokenType { 
-        Number, 
-        Variable, 
-        Operator, 
-        LeftParenthesis, 
-        RightParenthesis, 
-        Dot 
-    };
-
-    struct Token { 
-        TokenType type; 
-        std::string value; 
-    };
-
-    class Lexer {
-    public:
-        std::vector<Token> tokenize(std::string src) {
-            std::vector<Token> tokens; 
-            size_t pos = 0;
-            
-            while (pos < src.size()) {
-                char c = src[pos];
-                
-                if (std::isspace(c)) { pos++; continue; }
-                if (c == '+') { tokens.push_back({TokenType::Operator, "+"}); pos++; continue; }
-                if (c == '-') { tokens.push_back({TokenType::Operator, "-"}); pos++; continue; }
-                if (c == '*') { tokens.push_back({TokenType::Operator, "*"}); pos++; continue; }
-                if (c == '/') { tokens.push_back({TokenType::Operator, "/"}); pos++; continue; }
-                if (c == '(') { tokens.push_back({TokenType::LeftParenthesis, "("}); pos++; continue; }
-                if (c == ')') { tokens.push_back({TokenType::RightParenthesis, ")"}); pos++; continue; }
-                if (c == '.') { tokens.push_back({TokenType::Dot, "."}); pos++; continue; }
-                
-                if (std::isdigit(c)) {
-                    std::string num; 
-                    while(pos < src.size() && (std::isdigit(src[pos]) || src[pos] == '.')) {
-                        num += src[pos++];
-                    }
-                    tokens.push_back({TokenType::Number, num}); 
-                    continue;
-                }
-                
-                if (std::isalpha(c) || c == '_') {
-                    std::string str; 
-                    while(pos < src.size() && (std::isalnum(src[pos]) || src[pos] == '_')) {
-                        str += src[pos++];
-                    }
-                    tokens.push_back({TokenType::Variable, str}); 
-                    continue;
-                }
-                throw std::runtime_error("SoulEngine Lexer Error: Unknown character in expression!");
-            }
-            return tokens;
-        }
-    };
-
-    class Engine {
-        Context mem;
-        ClassRegistry& reg; 
-        std::unique_ptr<Node> root;
-
-        int getPriority(char op) { 
-            return (op == '+' || op == '-') ? 1 : ((op == '*' || op == '/') ? 2 : 0); 
-        }
-
-        void applyOperator(std::vector<std::unique_ptr<Node>>& nodes, std::vector<char>& ops) {
-            if (ops.empty() || nodes.size() < 2) {
-                throw std::runtime_error("SoulEngine Parser Error: Invalid expression syntax!");
-            }
-            char op = ops.back(); 
-            ops.pop_back();
-            
-            auto right = std::move(nodes.back()); nodes.pop_back();
-            auto left = std::move(nodes.back()); nodes.pop_back();
-            
-            if (op == '+') nodes.push_back(std::make_unique<AddNode>(std::move(left), std::move(right)));
-            if (op == '-') nodes.push_back(std::make_unique<SubNode>(std::move(left), std::move(right)));
-            if (op == '*') nodes.push_back(std::make_unique<MulNode>(std::move(left), std::move(right)));
-            if (op == '/') nodes.push_back(std::make_unique<DivNode>(std::move(left), std::move(right)));
-        }
-
-    public:
-        Engine(ClassRegistry& r) : reg(r) {}
-        
-        void bind(std::string name, double* ptr) { 
-            mem.addReference(name, ptr); 
-        }
-
-        template <typename ClassType>
-        void bindObject(std::string name, ClassType* ptr) { 
-            mem.addReference(name, ptr); 
-        }
-        
-        void pars(std::string expression) {
-            std::vector<std::unique_ptr<Node>> nodes; 
-            std::vector<char> ops;
-            Lexer lex; 
-            auto tokens = lex.tokenize(expression);
-            
-            for (size_t i = 0; i < tokens.size(); ++i) {
-                auto const& token = tokens[i];
-                
-                if (token.type == TokenType::Number) {
-                    nodes.push_back(std::make_unique<ValNode>(std::stod(token.value)));
-                } 
-                else if (token.type == TokenType::Variable) {
-                    std::unique_ptr<Node> current_node = std::make_unique<VarNode>(token.value);
-                    
-                    while (i + 1 < tokens.size() && tokens[i + 1].type == TokenType::Dot) {
-                        if (i + 2 >= tokens.size() || tokens[i + 2].type != TokenType::Variable) {
-                            throw std::runtime_error("SoulEngine Parser Error: Expected member name after dot operator!");
-                        }
-                        std::string member = tokens[i + 2].value;
-                        i += 2; 
-                        current_node = std::make_unique<MemberAccessNode>(std::move(current_node), member, reg);
-                    }
-                    nodes.push_back(std::move(current_node));
-                } 
-                else if (token.type == TokenType::Operator) {
-                    char op = token.value[0];
-                    while (!ops.empty() && getPriority(ops.back()) >= getPriority(op)) {
-                        applyOperator(nodes, ops);
-                    }
-                    ops.push_back(op);
-                } 
-                else if (token.type == TokenType::LeftParenthesis) { 
-                    ops.push_back('(');
-                } 
-                else if (token.type == TokenType::RightParenthesis) {
-                    while (!ops.empty() && ops.back() != '(') {
-                        applyOperator(nodes, ops);
-                    }
-                    if (!ops.empty()) ops.pop_back();
+            for (size_t i = 0; i < method_registry.size(); i++)
+            {
+                const auto &m = method_registry[i];
+                if (std::strcmp(m.class_type, obj.class_type) == 0 &&
+                    std::strlen(m.method_name) == method_len &&
+                    std::strncmp(m.method_name, target_method, method_len) == 0)
+                {
+                    return T(m.func_ptr(obj.obj_ptr));
                 }
             }
-            while (!ops.empty()) applyOperator(nodes, ops);
-            if (!nodes.empty()) root = std::move(nodes.back());
+            return T(0.0);
         }
+        }
+        return T(0.0);
+    }
 
-        double eval(std::string expr) {
-            pars(expr); 
-            T res = root->evaluator(mem);
-            if (res.kind != T::Kind::Number) {
-                throw std::runtime_error("SoulEngine Error: Expression evaluated to an object container, expected number!");
+    static void Lexer(const char *src, std::vector<Token> &tokens)
+    {
+        tokens.clear();
+        size_t i = 0;
+        Token curNode;
+
+        while (src[i] != '\0')
+        {
+            char c = src[i];
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+            {
+                i++;
+                continue;
             }
-            return res.number;
+
+            if (std::isdigit(c))
+            {
+                curNode.type = TokNumber;
+                curNode.start_ptr = &src[i];
+                char *endPtr;
+                curNode.number_value = std::strtod(&src[i], &endPtr);
+                i += (endPtr - &src[i]);
+                tokens.push_back(curNode);
+                continue;
+            }
+
+            if (std::isalpha(c) || c == '_')
+            {
+                curNode.type = TokVariable;
+                curNode.start_ptr = &src[i];
+                size_t start_index = i;
+
+                while (src[i] != '\0' && (std::isalnum(src[i]) || src[i] == '_'))
+                {
+                    i++;
+                }
+
+                curNode.lenght = i - start_index;
+                tokens.push_back(curNode);
+                continue;
+            }
+
+            switch (c)
+            {
+            case '+':
+                curNode.type = TokOperator;
+                curNode.start_ptr = &src[i];
+                curNode.op_char = '+';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            case '-':
+                curNode.type = TokOperator;
+                curNode.start_ptr = &src[i];
+                curNode.op_char = '-';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            case '*':
+                curNode.type = TokOperator;
+                curNode.start_ptr = &src[i];
+                curNode.op_char = '*';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            case '/':
+                curNode.type = TokOperator;
+                curNode.start_ptr = &src[i];
+                curNode.op_char = '/';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            case '.':
+                curNode.type = TokOperator;
+                curNode.start_ptr = &src[i];
+                curNode.op_char = '.';
+                tokens.push_back(curNode);
+                i++;
+                break;
+            default:
+                i++;
+                break;
+            }
+        }
+    }
+
+    void applyOperator(std::vector<Node> &pool, std::vector<int> &nodes, std::vector<char> &ops)
+    {
+        char op = ops.back();
+        ops.pop_back();
+        int right_idx = nodes.back();
+        nodes.pop_back();
+        int left_idx = nodes.back();
+        nodes.pop_back();
+
+        NodeType type;
+        switch (op)
+        {
+        case '.':
+            type = NodeMemberAccess;
+            break;
+        case '+':
+            type = NodeAdd;
+            break;
+        case '-':
+            type = NodeSub;
+            break;
+        case '*':
+            type = NodeMul;
+            break;
+        case '/':
+            type = NodeDiv;
+            break;
+        default:
+            return;
         }
 
-        Context& getMem() { return mem; }
-    };
-} 
+        Node newNode;
+        newNode.type = type;
+        newNode.left = left_idx;
+        newNode.right = right_idx;
+        pool.push_back(newNode);
+        nodes.push_back(pool.size() - 1);
+    }
 
-class Player {
+    int getPriority(char op)
+    {
+        switch (op)
+        {
+        case '*':
+        case '/':
+            return 2;
+        case '+':
+        case '-':
+            return 1;
+        case '.':
+            return 3;
+        default:
+            return 0;
+        }
+    }
+
+    int parse(const std::vector<Token> &tokens, std::vector<Node> &node_pool, std::vector<int> &node_stack, std::vector<char> &op_stack)
+    {
+        node_pool.clear();
+        node_stack.clear();
+        op_stack.clear();
+
+        for (size_t i = 0; i < tokens.size(); i++)
+        {
+            const Token &tok = tokens[i];
+            if (tok.type == TokNumber)
+            {
+                Node numNode;
+                numNode.type = NodeNumber;
+                numNode.value = tok.number_value;
+                node_pool.push_back(numNode);
+                node_stack.push_back(node_pool.size() - 1);
+            }
+            else if (tok.type == TokVariable)
+            {
+                Node varNode;
+                varNode.type = NodeVariable;
+                varNode.var_name = tok.start_ptr;
+                varNode.lenght = tok.lenght;
+                node_pool.push_back(varNode);
+                node_stack.push_back(node_pool.size() - 1);
+            }
+            else if (tok.type == TokOperator)
+            {
+                char current_op = tok.op_char;
+                while (!op_stack.empty() && getPriority(op_stack.back()) >= getPriority(current_op))
+                {
+                    applyOperator(node_pool, node_stack, op_stack);
+                }
+                op_stack.push_back(current_op);
+            }
+        }
+        while (!op_stack.empty())
+        {
+            applyOperator(node_pool, node_stack, op_stack);
+        }
+        return node_stack.empty() ? -1 : node_stack.back();
+    }
+
+    double eval(const char *expression, Context &ctx)
+    {
+        Lexer(expression, ctx.token_buffer);
+        int root_idx = parse(ctx.token_buffer, ctx.pool_buffer, ctx.node_stack_buffer, ctx.op_stack_buffer);
+        return evaluator(root_idx, ctx.pool_buffer, ctx).number;
+    }
+}
+
+class TestPlayer
+{
 private:
-    double hp; 
+    double helth = 100;
+
 public:
-    Player(double initial_hp) : hp(initial_hp) {}
-
-    double getHp() { return hp; }
-    
-    double takeDamage() { 
-        hp -= 25.0; 
-        return hp; 
-    }
-
-    double heel() {
-        hp+= 25.0;
-        return hp;
-    }
+    double GetHp() { return this->helth; }
+    void AddHp(double offset) { this->helth += offset; }
+    void MinusHp(double offset) { this->helth -= offset; }
 };
 
-int main() {
-    SoulEngine::ClassRegistry registry;
-    registry.registerMethod("getHp", &Player::getHp);
-    registry.registerMethod("takeDamage", &Player::takeDamage);
-    registry.registerMethod("heel", &Player::heel);
-
-    SoulEngine::Engine engine(registry);
+int main()
+{
+    // Регистрируем методы классов
+    SoulEngine::method_registry.push_back({"TestPlayer", "GetHp", &SoulEngine::invokeWrapper<TestPlayer, &TestPlayer::GetHp>});
     
-    VAR(engine, double, modifier, 5.0);
+    SoulEngine::Context ctx;
+    TestPlayer player;
 
-    Player player(100.0);
-    engine.bindObject("player", &player);
+    // Инициализируем переменные окружения
+    ctx["modifier"] = 5.5;
+    ctx["player"] = SoulEngine::T(&player, "TestPlayer");
 
-    try {
-        double res_init = engine.eval("player.getHp * 2 + modifier");
-        std::cout << "res1:" << res_init << std::endl;
+    const char *expr = "2 * 5 + player.GetHp + modifier";
+    double result = SoulEngine::eval(expr, ctx);
 
-        double res_damaged = engine.eval("player.takeDamage + modifier");
-        std::cout << "res2:" << res_damaged << std::endl;
-
-        double res_heeled = engine.eval("player.heel");
-        std::cout << "res3:" << res_heeled << std::endl;
-
-
-    } catch (const std::exception& e) {
-        std::cerr << "Пизда, не сработало " << e.what() << std::endl;
-    }
+    std::printf("SoulEngine Execution Test\n");
+    std::printf("Expression : %s\n", expr);
+    std::printf("Result     : %f (Expected: 115.5)\n", result);
 
     return 0;
 }
