@@ -1,12 +1,13 @@
 # Специфичные папки сборки CMake и w64devkit
 build/
+bin/
+out/
 .cmake/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
 Makefile
 cmake_install.cmake
-build/
 
 # Скомпилированные исполняемые файлы, статические и динамические библиотеки
 *.exe
