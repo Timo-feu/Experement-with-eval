@@ -3,8 +3,6 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
-#include <chrono>
-#include <string>
 
 namespace SoulEngine
 {
