@@ -1,8 +1,9 @@
 # SoulEngine v2.0
 
-![C++ Version](https://shields.io)
-![Memory Overhead](https://shields.io)
-![Build System](https://shields.io)
+![C++ Standard](https://shields.io)
+![License](https://shields.io)
+![Memory Allocation](https://shields.io)
+![Binary Size](https://shields.io)
 
 Легковесный интерпретатор математических выражений на C++17 с поддержкой динамической рантайм-рефлексии. Разрабатывался для вычисления формул на лету в игровых системах и Embedded-компонентах, где важна скорость и предсказуемость работы с памятью.
 
