@@ -412,7 +412,6 @@ public:
 
 int main()
 {
-    // Регистрируем методы классов
     SoulEngine::method_registry.push_back({"TestPlayer", "GetHp", &SoulEngine::invokeWrapper<TestPlayer, &TestPlayer::GetHp>});
     
     SoulEngine::Context ctx;
