@@ -81,7 +81,8 @@ namespace SoulEngine
         NodeSub,
         NodeMul,
         NodeDiv,
-        NodeMemberAccess
+        NodeMemberAccess,
+        NodeUnaryMinus
     };
     enum TokenType
     {
@@ -204,6 +205,14 @@ namespace SoulEngine
             }
             return T(0.0);
         }
+
+        case NodeUnaryMinus:
+        {
+            T operand = evaluator(cur_node.right, pool, ctx);
+            if (operand.form == T::Forms::Number)
+                return T(-operand.number);
+            return T(0.0);
+        }
         }
         return T(0.0);
     }
@@ -223,7 +232,7 @@ namespace SoulEngine
                 continue;
             }
 
-            if (std::isdigit(c))
+            if (std::isdigit(c) || (c == '-' && std::isdigit(src[i + 1])))
             {
                 curNode.type = TokNumber;
                 curNode.start_ptr = &src[i];
@@ -260,11 +269,22 @@ namespace SoulEngine
                 i++;
                 break;
             case '-':
-                curNode.type = TokOperator;
-                curNode.start_ptr = &src[i];
-                curNode.op_char = '-';
-                tokens.push_back(curNode);
-                i++;
+                if (i > 0 && (std::isdigit(src[i - 1]) || src[i - 1] == ')'))
+                {
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '-';
+                    tokens.push_back(curNode);
+                    i++;
+                }
+                else
+                {
+                    curNode.type = TokOperator;
+                    curNode.start_ptr = &src[i];
+                    curNode.op_char = '-';
+                    tokens.push_back(curNode);
+                    i++;
+                }
                 break;
             case '*':
                 curNode.type = TokOperator;
@@ -300,6 +320,17 @@ namespace SoulEngine
         ops.pop_back();
         int right_idx = nodes.back();
         nodes.pop_back();
+
+        if (op == '-')
+        {
+            Node newNode;
+            newNode.type = NodeUnaryMinus;
+            newNode.right = right_idx;
+            pool.push_back(newNode);
+            nodes.push_back(pool.size() - 1);
+            return;
+        }
+
         int left_idx = nodes.back();
         nodes.pop_back();
 
@@ -379,17 +410,58 @@ namespace SoulEngine
             else if (tok.type == TokOperator)
             {
                 char current_op = tok.op_char;
-                while (!op_stack.empty() && getPriority(op_stack.back()) >= getPriority(current_op))
+
+                // Handle unary minus
+                if (current_op == '-' && (i == 0 || tokens[i - 1].type != TokNumber))
                 {
-                    applyOperator(node_pool, node_stack, op_stack);
+                    Node unaryMinusNode;
+                    unaryMinusNode.type = NodeUnaryMinus;
+                    node_pool.push_back(unaryMinusNode);
+                    int unaryIdx = node_pool.size() - 1;
+
+                    // Push the next token as a child of the unary minus
+                    i++;
+                    const Token &nextTok = tokens[i];
+                    if (nextTok.type == TokNumber)
+                    {
+                        Node numNode;
+                        numNode.type = NodeNumber;
+                        numNode.value = -nextTok.number_value; // Negate the number directly
+                        node_pool.push_back(numNode);
+                        unaryMinusNode.right = node_pool.size() - 1;
+                    }
+                    else if (nextTok.type == TokVariable)
+                    {
+                        Node varNode;
+                        varNode.type = NodeVariable;
+                        varNode.var_name = nextTok.start_ptr;
+                        varNode.lenght = nextTok.lenght;
+                        node_pool.push_back(varNode);
+                        unaryMinusNode.right = node_pool.size() - 1;
+                    }
+                    else
+                    {
+                        // Handle other cases if necessary
+                    }
+
+                    node_stack.push_back(unaryIdx);
                 }
-                op_stack.push_back(current_op);
+                else
+                {
+                    while (!op_stack.empty() && getPriority(op_stack.back()) >= getPriority(current_op))
+                    {
+                        applyOperator(node_pool, node_stack, op_stack);
+                    }
+                    op_stack.push_back(current_op);
+                }
             }
         }
+
         while (!op_stack.empty())
         {
             applyOperator(node_pool, node_stack, op_stack);
         }
+
         return node_stack.empty() ? -1 : node_stack.back();
     }
 
@@ -412,11 +484,13 @@ public:
     void MinusHp(double offset) { this->helth -= offset; }
 };
 
-class Monster {
-    private:
-        double helth = 200;
-    public: 
-        double GetHp() { return this->helth; }
+class Monster
+{
+private:
+    double helth = 200;
+
+public:
+    double GetHp() { return this->helth; }
 };
 
 static size_t g_heap_allocations = 0;
@@ -428,6 +502,7 @@ void *operator new(size_t size)
     g_allocated_bytes += size;
     return std::malloc(size);
 }
+
 void operator delete(void *memory) noexcept { std::free(memory); }
 
 int main()
@@ -444,11 +519,13 @@ int main()
     TestPlayer player;
     Monster monster;
 
-    ctx["modifier"] = 5.5;
+    ctx["modifier"] = SoulEngine::T(&player, "TestPlayer");
     ctx["player"] = SoulEngine::T(&player, "TestPlayer");
     ctx["monster"] = SoulEngine::T(&monster, "Monster");
 
     std::vector<std::string> dynamic_expressions = {
+        "-5 + 3",
+        "5 * -2",
         "2 * 5 + player.GetHp + modifier",
         "(modifier - 10) * 3 + 150",
         "player.GetHp * modifier / 2.5",
@@ -502,6 +579,6 @@ int main()
 
     std::printf("Checksum Verify    : %f\n", sum / ITERATIONS);
     std::printf("==================================================\n");
-    
+
     return 0;
 }
